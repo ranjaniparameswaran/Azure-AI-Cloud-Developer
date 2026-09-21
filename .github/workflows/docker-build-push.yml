@@ -1,0 +1,52 @@
+name: Build and Push AI-App to Azure Container Registry
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  ACR_NAME: ranjpacr
+  IMAGE_NAME: ai-app
+  IMAGE_TAG: latest
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Azure login using OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to Azure Container Registry
+        run: |
+          az acr login --name $ACR_NAME
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG \
+            -t $ACR_NAME.azurecr.io/$IMAGE_NAME:${GITHUB_SHA} \
+            Containers-and-Web-Apps/AI-App
+
+      - name: Push Docker image
+        run: |
+          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
+          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:${GITHUB_SHA}
+
+      - name: Show pushed image
+        run: |
+          echo "Image pushed:"
+          echo "$ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG"
+          echo "$ACR_NAME.azurecr.io/$IMAGE_NAME:${GITHUB_SHA}"
