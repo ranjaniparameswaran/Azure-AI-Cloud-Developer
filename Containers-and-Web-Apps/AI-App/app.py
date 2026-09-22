@@ -1,8 +1,8 @@
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import Flask, request, jsonify
-from openai import AzureOpenAI
+from openai import OpenAI
 from dotenv import load_dotenv
 
 app = Flask(__name__)
@@ -13,7 +13,6 @@ load_dotenv()
 AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_API_URL")
 AZURE_OPENAI_API_KEY = os.environ.get("AZURE_API_KEY")
 AZURE_OPENAI_MODEL_NAME = os.environ.get("AZURE_MODEL_NAME")
-AZURE_OPENAI_API_VERSION = "2024-06-01"
 
 # Persistent storage path in Azure App Service
 CHAT_HISTORY_DIR = "/home/chat_history"
@@ -21,72 +20,104 @@ CHAT_HISTORY_DIR = "/home/chat_history"
 # Create directory if it does not exist
 os.makedirs(CHAT_HISTORY_DIR, exist_ok=True)
 
-client = AzureOpenAI(
-    api_version=AZURE_OPENAI_API_VERSION,
-    azure_endpoint=AZURE_OPENAI_ENDPOINT,
+# Azure OpenAI v1 client
+client = OpenAI(
+    base_url=AZURE_OPENAI_ENDPOINT,
     api_key=AZURE_OPENAI_API_KEY,
 )
+
 
 @app.route("/chat", methods=["POST"])
 def chat():
 
     data = request.get_json()
 
+    if not data or "message" not in data:
+        return jsonify({
+            "error": "Request body must contain a 'message' field."
+        }), 400
+
     user_message = data.get("message", "")
 
-    response = client.chat.completions.create(
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful assistant."
-            },
-            {
-                "role": "user",
-                "content": user_message
-            },
-        ],
-        max_tokens=500,
-        temperature=0.7,
-        model=AZURE_OPENAI_MODEL_NAME,
-    )
+    try:
+        response = client.chat.completions.create(
+            model=AZURE_OPENAI_MODEL_NAME,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant."
+                },
+                {
+                    "role": "user",
+                    "content": user_message
+                }
+            ],
+            max_tokens=500,
+            temperature=0.7,
+        )
 
-    assistant_reply = response.choices[0].message.content
+        assistant_reply = response.choices[0].message.content
 
-    # Create chat record
-    chat_record = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "user_message": user_message,
-        "assistant_reply": assistant_reply
-    }
+        # Create timestamp
+        now = datetime.now(timezone.utc)
 
-    # Save chat history to persistent storage
-    filename = f"chat_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.json"
+        # Create chat record
+        chat_record = {
+            "timestamp": now.isoformat(),
+            "user_message": user_message,
+            "assistant_reply": assistant_reply
+        }
 
-    file_path = os.path.join(CHAT_HISTORY_DIR, filename)
+        # Save chat history to persistent storage
+        filename = f"chat_{now.strftime('%Y%m%d%H%M%S%f')}.json"
+        file_path = os.path.join(CHAT_HISTORY_DIR, filename)
 
-    with open(file_path, "w") as file:
-        json.dump(chat_record, file, indent=4)
+        with open(file_path, "w", encoding="utf-8") as file:
+            json.dump(chat_record, file, indent=4, ensure_ascii=False)
 
-    return jsonify({
-        "model": response.model,
-        "reply": assistant_reply,
-        "saved_file": file_path
-    })
+        return jsonify({
+            "model": response.model,
+            "reply": assistant_reply,
+            "saved_file": file_path
+        })
+
+    except Exception as e:
+        app.logger.exception("Azure OpenAI request failed")
+
+        return jsonify({
+            "error": "Azure OpenAI request failed",
+            "details": str(e)
+        }), 500
 
 
 @app.route("/history", methods=["GET"])
 def history():
 
-    files = os.listdir(CHAT_HISTORY_DIR)
+    try:
+        files = os.listdir(CHAT_HISTORY_DIR)
 
-    return jsonify({
-        "stored_files": files
-    })
+        return jsonify({
+            "stored_files": files
+        })
+
+    except Exception as e:
+        app.logger.exception("Failed to retrieve chat history")
+
+        return jsonify({
+            "error": "Failed to retrieve chat history",
+            "details": str(e)
+        }), 500
+
 
 @app.route("/health", methods=["GET"])
 def health_check():
-    return {'status': 'healthy'}, 200
+    return jsonify({
+        "status": "healthy"
+    }), 200
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(
+        host="0.0.0.0",
+        port=5000
+    )
