@@ -8,9 +8,9 @@ app = Flask(__name__)
 # Read configuration from environment variables
 load_dotenv()
 
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_API_URL")
-AZURE_OPENAI_API_KEY = os.getenv("AZURE_API_KEY")
-AZURE_OPENAI_MODEL_NAME = os.getenv("AZURE_MODEL_NAME")
+AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_API_URL")
+AZURE_OPENAI_API_KEY = os.environ.get("AZURE_API_KEY")
+AZURE_OPENAI_MODEL_NAME = os.environ.get("AZURE_MODEL_NAME")
 
 # Create Azure OpenAI client using the v1 endpoint
 client = OpenAI(
